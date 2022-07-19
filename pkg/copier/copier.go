@@ -58,8 +58,9 @@ type Options struct {
 	// is used.
 	ConsiderTags []string
 
-	// DeepCopy is a flag to enable deep copying of values.
-	DeepCopy bool
+	// TODO: maybe add support for shallow copy?
+	// // DeepCopy is a flag to enable deep copying of values.
+	// DeepCopy bool
 
 	// IgnoreErrors is a flag to ignore errors and continuing copying of values.
 	IgnoreErrors bool
