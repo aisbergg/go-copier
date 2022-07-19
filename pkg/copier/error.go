@@ -2,14 +2,16 @@ package copier
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
 // CopierError represents an error that occurred during copying.
 type CopierError struct {
-	key   []string
-	msg   string
-	cause error
+	bstTyp reflect.Type
+	key    []string
+	msg    string
+	cause  error
 }
 
 func newError(format string, args ...interface{}) *CopierError {
@@ -36,6 +38,14 @@ func (e *CopierError) Error() string {
 				key += e.key[i]
 			} else {
 				key += "." + e.key[i]
+			}
+		}
+		if e.bstTyp != invalidType {
+			prf := "(" + e.bstTyp.String() + ")"
+			if len(key) > 0 {
+				key = prf + "." + key
+			} else {
+				key = prf
 			}
 		}
 		return fmt.Sprintf("%s: %s", key, e.msg)

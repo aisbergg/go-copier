@@ -171,6 +171,7 @@ func (c *Copier) Copy(src interface{}) (interface{}, error) {
 	_, _, dstTopVal := initDstVal(reflect.Value{}, srcVal.Type())
 	dstVal := dstTopVal.Elem()
 	if err := c.copyRecursive(srcVal, dstVal); err != nil {
+		err.bstTyp = srcVal.Type()
 		return nil, err
 	}
 	return dstVal.Interface(), nil
@@ -184,6 +185,7 @@ func (c *Copier) CopyTo(src interface{}, dst interface{}) error {
 	srcVal := reflect.ValueOf(src)
 	dstVal := reflect.ValueOf(dst)
 	if err := c.copyRecursive(srcVal, dstVal); err != nil {
+		err.bstTyp = srcVal.Type()
 		return err
 	}
 	return nil
