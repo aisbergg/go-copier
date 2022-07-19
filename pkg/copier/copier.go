@@ -433,7 +433,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 			}
 
 		default:
-			return newError("unsupported types (%s ➜ %s)", srcVal.Type(), dstVal.Type())
+			return newError("incompatible types (%s ➜ %s)", srcVal.Type(), dstVal.Type())
 		}
 
 	// -------------------------------------------------------------------------
@@ -443,14 +443,47 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 		if srcVal.IsNil() {
 			return nil
 		}
-		// Make a new slice and copy each element.
-		dstBaseVal.Set(reflect.MakeSlice(dstBaseVal.Type(), srcVal.Len(), srcVal.Cap()))
-		for i := 0; i < srcVal.Len(); i++ {
-			err := c.copyRecursive(srcVal.Index(i), dstBaseVal.Index(i))
-			if err != nil {
-				err.key = append(err.key, fmt.Sprintf("[%v]", i))
-				return err
+		switch dstBaseVal.Kind() {
+		case reflect.Slice:
+			if dstBaseVal.IsNil() {
+				// make a new slice
+				dstBaseVal.Set(reflect.MakeSlice(dstBaseVal.Type(), srcVal.Len(), srcVal.Cap()))
 			}
+			// copy elements up to the length of the shorter slice
+			srcInd := 0
+			for srcInd < srcVal.Len() && srcInd < dstBaseVal.Len() {
+				err := c.copyRecursive(srcVal.Index(srcInd), dstBaseVal.Index(srcInd))
+				if err != nil {
+					err.key = append(err.key, fmt.Sprintf("[%v]", srcInd))
+					return err
+				}
+				srcInd++
+			}
+			// if the source slice is longer (if it was already initialized), append
+			// elements to the destination slice
+			res := dstBaseVal
+			dstValType := dstBaseVal.Type().Elem()
+			for srcInd < srcVal.Len() {
+				_, _, cpTopVal := initDstVal(reflect.Value{}, dstValType)
+				cpVal := cpTopVal.Elem()
+				err := c.copyRecursive(srcVal.Index(srcInd), cpVal)
+				if err != nil {
+					err.key = append(err.key, fmt.Sprintf("[%v]", srcInd))
+					return err
+				}
+				res = reflect.Append(res, cpVal)
+				srcInd++
+			}
+			// slice might have changed, so set the new value
+			if res != dstBaseVal {
+				if !dstBaseVal.CanSet() {
+					return newError("cannot append new values to slice")
+				}
+				dstBaseVal.Set(res)
+			}
+
+		default:
+			return newError("incompatible types (%s ➜ %s)", srcVal.Type(), dstVal.Type())
 		}
 
 	// -------------------------------------------------------------------------
@@ -520,7 +553,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 			}
 
 		default:
-			return newError("unsupported types (%s ➜ %s)", srcVal.Type(), dstVal.Type())
+			return newError("incompatible types (%s ➜ %s)", srcVal.Type(), dstVal.Type())
 		}
 
 	// -------------------------------------------------------------------------
