@@ -367,8 +367,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 			// treat time.Time differently (force copy unexported fields)
 			timeType := reflect.TypeOf(time.Time{})
 			if srcVal.Type() == timeType && dstBaseVal.Type() == timeType {
-				dstBaseVal.Set(srcVal)
-				return nil
+				copyUnexported(srcVal, dstBaseVal)
 			}
 
 			// get a list of exported fields for src and dst
