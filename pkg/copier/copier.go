@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// TODO: clean up errors
+
 var (
 	ErrInvalidCopyDestination        = errors.New("copy destination is invalid")
 	ErrInvalidCopySource             = errors.New("copy source is invalid")
@@ -97,6 +99,8 @@ type converterPair struct {
 	DstType reflect.Type
 }
 
+// Copier represents a copy utility that can deep copy any value type and
+// performs automatic type conversion.
 type Copier struct {
 	options Options
 
@@ -160,9 +164,7 @@ func New(options Options) *Copier {
 	}
 }
 
-// Copy creates a deep copy of whatever is passed to it and returns the copy
-// in an interface{}.  The returned value will need to be asserted to the
-// correct type.
+// Copy creates a deep copy of whatever is passed to it.
 func (c *Copier) Copy(src interface{}) (interface{}, error) {
 	if src == nil {
 		return nil, nil
@@ -177,7 +179,7 @@ func (c *Copier) Copy(src interface{}) (interface{}, error) {
 	return dstVal.Interface(), nil
 }
 
-// CopyTo copies the src object to dst.
+// CopyTo deep copies the src object to dst.
 func (c *Copier) CopyTo(src interface{}, dst interface{}) error {
 	if src == nil {
 		return nil
@@ -963,7 +965,10 @@ func indirectType(typ reflect.Type) (_ reflect.Type, isPtr bool) {
 //
 // -----------------------------------------------------------------------------
 
+// Copy creates a deep copy of whatever is passed to it. If you intend to use
+// Copy a bunch of times, then rather create a new Copier instance and use that.
 func Copy(src interface{}, options ...Options) (interface{}, error) {
+	fmt.Println(options == nil)
 	if options == nil {
 		options = []Options{Options{}}
 	}
@@ -971,6 +976,8 @@ func Copy(src interface{}, options ...Options) (interface{}, error) {
 	return copier.Copy(src)
 }
 
+// CopyTo deep copies the src object to dst. If you intend to use CopyTo a bunch
+// of times, then rather create a new Copier instance and use that.
 func CopyTo(src interface{}, dst interface{}, options ...Options) error {
 	if options == nil {
 		options = []Options{Options{}}
