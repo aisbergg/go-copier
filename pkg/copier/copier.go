@@ -968,7 +968,6 @@ func indirectType(typ reflect.Type) (_ reflect.Type, isPtr bool) {
 // Copy creates a deep copy of whatever is passed to it. If you intend to use
 // Copy a bunch of times, then rather create a new Copier instance and use that.
 func Copy(src interface{}, options ...Options) (interface{}, error) {
-	fmt.Println(options == nil)
 	if options == nil {
 		options = []Options{Options{}}
 	}
