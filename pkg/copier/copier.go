@@ -32,6 +32,8 @@ var (
 
 	errConversionStr   = "failed to convert value"
 	errTypeMismatchStr = "type mismatch"
+
+	timeType = reflect.TypeOf(time.Time{})
 )
 
 // Type of tags that the copier understands.
@@ -110,7 +112,7 @@ type Copier struct {
 	dstMatchConverters    map[converterPair]converterFunc
 	srcDstMatchConverters map[converterPair]converterFunc
 
-	structTagInfoCache map[reflect.Type]map[string]structTagInfo
+	structFieldsCache map[reflect.Type]map[string]structField
 }
 
 // New creates a new Copier with the given options.
@@ -151,8 +153,8 @@ func New(options Options) *Copier {
 		}
 	}
 
-	// create cache for struct tag info
-	cache := make(map[reflect.Type]map[string]structTagInfo)
+	// create cache for struct fields info
+	cache := make(map[reflect.Type]map[string]structField)
 
 	return &Copier{
 		options:               options,
@@ -160,7 +162,7 @@ func New(options Options) *Copier {
 		dstMatchConverters:    dstMatchConverters,
 		srcDstMatchConverters: srcDstMatchConverters,
 
-		structTagInfoCache: cache,
+		structFieldsCache: cache,
 	}
 }
 
@@ -388,7 +390,6 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 			}
 
 			// treat time.Time differently (force copy unexported fields)
-			timeType := reflect.TypeOf(time.Time{})
 			if srcVal.Type() == timeType && dstBaseVal.Type() == timeType {
 				copyUnexported(srcVal, dstBaseVal)
 			}
@@ -411,7 +412,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 					}
 					continue
 				}
-				err := c.copyRecursive(srcFld.Value, dstFld.Value)
+				err := c.copyRecursive(srcVal.Field(srcFld.Index), dstBaseVal.Field(dstFld.Index))
 				if err != nil {
 					err.key = append(err.key, k)
 					return err
@@ -445,7 +446,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 				}
 
 				// copy the value
-				srcElmVal := srcFld.Value
+				srcElmVal := srcVal.Field(srcFld.Index)
 				err := c.copyRecursive(srcElmVal, dstElmVal)
 				if err != nil {
 					err.key = append(err.key, fmt.Sprint(key))
@@ -471,6 +472,9 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 		case reflect.Slice:
 			if dstBaseVal.IsNil() {
 				// make a new slice
+				if !dstBaseVal.CanSet() {
+					return newError(errInvalidCopyDestinationStr)
+				}
 				dstBaseVal.Set(reflect.MakeSlice(dstBaseVal.Type(), srcVal.Len(), srcVal.Cap()))
 			}
 			// copy elements up to the length of the shorter slice
@@ -569,7 +573,7 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 					}
 					continue
 				}
-				err := c.copyRecursive(srcElmVal, dstFld.Value)
+				err := c.copyRecursive(srcElmVal, dstBaseVal.Field(dstFld.Index))
 				if err != nil {
 					err.key = append(err.key, key)
 					return err
@@ -611,20 +615,23 @@ type structTagInfo struct {
 type structField struct {
 	Name  string
 	Flags uint8
-	Value reflect.Value
+	Index int
 }
 
 // getStructFields returns the (filtered) fields of the given struct.
 func (c *Copier) getStructFields(structVal reflect.Value) map[string]structField {
+	typ := structVal.Type()
+	if cached, ok := c.structFieldsCache[typ]; ok {
+		return cached
+	}
+
 	flds := make([]reflect.StructField, 0, structVal.NumField())
-	fldsVal := make([]reflect.Value, 0, len(flds))
 	for i := 0; i < structVal.NumField(); i++ {
 		// the struct field `PkgPath` is empty for exported fields
 		if structVal.Type().Field(i).PkgPath != "" {
 			continue
 		}
 		flds = append(flds, structVal.Type().Field(i))
-		fldsVal = append(fldsVal, structVal.Field(i))
 	}
 
 	// get the struct tag info
@@ -632,7 +639,7 @@ func (c *Copier) getStructFields(structVal reflect.Value) map[string]structField
 
 	// create a list of fields with associated tag info
 	structFlds := make(map[string]structField, len(flds))
-	for i, fld := range flds {
+	for _, fld := range flds {
 		tagInfo := tagInfos[fld.Name]
 		if (tagInfo.Flags & tagIgnore) != 0 {
 			continue
@@ -644,30 +651,17 @@ func (c *Copier) getStructFields(structVal reflect.Value) map[string]structField
 		structFlds[mappedName] = structField{
 			Name:  fld.Name,
 			Flags: tagInfo.Flags,
-			Value: fldsVal[i],
+			Index: fld.Index[0],
 		}
 	}
-	// structFlds := make([]structField, 0, len(flds))
-	// for i, fld := range flds {
-	// 	tagInfo := tagInfos[fld.Name]
-	// 	if (tagInfo.Flags & tagIgnore) != 0 {
-	// 		continue
-	// 	}
-	// 	structFlds = append(structFlds, structField{
-	// 		Name:  tagInfo.Name,
-	// 		Flags: tagInfo.Flags,
-	// 		Value: fldsVal[i],
-	// 	})
-	// }
+
+	// cache fields info
+	c.structFieldsCache[typ] = structFlds
 
 	return structFlds
 }
 
 func (c *Copier) getStructTagInfo(typ reflect.Type, flds []reflect.StructField) map[string]structTagInfo {
-	if _, ok := c.structTagInfoCache[typ]; ok {
-		return c.structTagInfoCache[typ]
-	}
-
 	// struct field name -> parsed tag info
 	info := make(map[string]structTagInfo)
 
@@ -686,9 +680,6 @@ func (c *Copier) getStructTagInfo(typ reflect.Type, flds []reflect.StructField) 
 			}
 		}
 	}
-
-	// cache tag info
-	c.structTagInfoCache[typ] = info
 
 	return info
 }
