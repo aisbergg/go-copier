@@ -226,12 +226,21 @@ func initDstVal(dstVal reflect.Value, srcType reflect.Type) (baseVal, basePtr, t
 			indCount++
 		}
 
-		// dstVal points to an already initialized value -> return
+		// dstVal points to something valid (like an already initialized value)
 		if drefVal.Kind() != reflect.Pointer && drefVal.IsValid() {
-			baseVal = drefVal
-			basePtr = drefVal.Addr()
-			topPtr = reflect.Value{}
-			return baseVal, basePtr, topPtr
+			// need to go deeper to find out what is contained in interface
+			if drefVal.Kind() == reflect.Interface {
+				tmpVal, tmpPtr, tmpTopPtr := initDstVal(drefVal, srcType)
+				if tmpTopPtr.IsValid() {
+					drefVal.Set(tmpTopPtr.Elem())
+				}
+				basePtr = tmpPtr
+				baseVal = tmpVal
+				return baseVal, basePtr, topPtr
+			}
+
+			// dstVal points to an already initialized value -> return as is
+			return drefVal, drefVal.Addr(), reflect.Value{}
 		}
 
 		// initialize value and chain of pointers
@@ -264,6 +273,18 @@ func initDstVal(dstVal reflect.Value, srcType reflect.Type) (baseVal, basePtr, t
 		return
 
 	case reflect.Interface:
+		// if dst contains something non-nil, go deeper
+		if !dstVal.IsNil() {
+			topPtr = basePtr
+			tmpVal, tmpPtr, tmpTopPtr := initDstVal(dstVal.Elem(), srcType)
+			if tmpTopPtr.IsValid() {
+				dstVal.Set(tmpTopPtr.Elem())
+			}
+			basePtr = tmpPtr
+			baseVal = tmpVal
+			return baseVal, basePtr, topPtr
+		}
+
 		baseVal = dstVal
 
 		// if the source type implements the interface, use the type of the source
