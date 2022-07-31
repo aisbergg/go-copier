@@ -33,7 +33,8 @@ var (
 	errConversionStr   = "failed to convert value"
 	errTypeMismatchStr = "type mismatch"
 
-	timeType = reflect.TypeOf(time.Time{})
+	timeType    = reflect.TypeOf(time.Time{})
+	invalidType = reflect.TypeOf(nil)
 )
 
 // Type of tags that the copier understands.
@@ -111,6 +112,7 @@ type Copier struct {
 	srcMatchConverters    map[converterPair]converterFunc
 	dstMatchConverters    map[converterPair]converterFunc
 	srcDstMatchConverters map[converterPair]converterFunc
+	convertersEnabled     bool
 
 	structFieldsCache map[reflect.Type]map[string]structField
 }
@@ -152,6 +154,7 @@ func New(options Options) *Copier {
 			srcDstMatchConverters[converterPair{SrcType: srcType, DstType: dstType}] = converter.Fn
 		}
 	}
+	convertersEnabled := len(srcMatchConverters) > 0 || len(dstMatchConverters) > 0 || len(srcDstMatchConverters) > 0
 
 	// create cache for struct fields info
 	cache := make(map[reflect.Type]map[string]structField)
@@ -161,6 +164,7 @@ func New(options Options) *Copier {
 		srcMatchConverters:    srcMatchConverters,
 		dstMatchConverters:    dstMatchConverters,
 		srcDstMatchConverters: srcDstMatchConverters,
+		convertersEnabled:     convertersEnabled,
 
 		structFieldsCache: cache,
 	}
@@ -194,8 +198,6 @@ func (c *Copier) CopyTo(src interface{}, dst interface{}) error {
 	}
 	return nil
 }
-
-var invalidType = reflect.TypeOf(nil)
 
 // initDstVal returns the zero value for dst if dst is not initialized. If dst
 // is invalid, the type of src will be used to initialize it.
@@ -327,11 +329,13 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 		return newError("copy source is invalid")
 	}
 
-	// try to use custom converters
-	if hasCopied, err := c.copyWithConverters(srcVal, dstVal); err != nil {
-		return wrapError(err, "copy via custom converter failed")
-	} else if hasCopied {
-		return nil
+	if c.convertersEnabled {
+		// try to use custom converters
+		if hasCopied, err := c.copyWithConverters(srcVal, dstVal); err != nil {
+			return wrapError(err, "copy via custom converter failed")
+		} else if hasCopied {
+			return nil
+		}
 	}
 
 	// handle according to original's Kind
