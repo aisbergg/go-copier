@@ -89,12 +89,12 @@ type Options struct {
 type TypeConverter struct {
 	SrcType interface{}
 	DstType interface{}
-	Fn      func(src interface{}) (dst interface{}, err error)
+	Fn      func(src interface{}) (dst interface{}, stop bool, err error)
 }
 
 // converterFunc is a function that converts a value from a source type to a
 // destination type.
-type converterFunc func(src interface{}) (dst interface{}, err error)
+type converterFunc func(src interface{}) (dst interface{}, stop bool, err error)
 
 // converterPair is a helper type for fast converter lookup.
 type converterPair struct {
@@ -129,9 +129,9 @@ func New(options Options) *Copier {
 			continue
 		}
 		if converter.SrcType == nil {
-			dstType, ok := converter.SrcType.(reflect.Type)
+			dstType, ok := converter.DstType.(reflect.Type)
 			if !ok {
-				dstType = reflect.TypeOf(converter.SrcType)
+				dstType = reflect.TypeOf(converter.DstType)
 			}
 			dstMatchConverters[converterPair{DstType: dstType}] = converter.Fn
 
@@ -147,9 +147,9 @@ func New(options Options) *Copier {
 			if !ok {
 				srcType = reflect.TypeOf(converter.SrcType)
 			}
-			dstType, ok := converter.SrcType.(reflect.Type)
+			dstType, ok := converter.DstType.(reflect.Type)
 			if !ok {
-				dstType = reflect.TypeOf(converter.SrcType)
+				dstType = reflect.TypeOf(converter.DstType)
 			}
 			srcDstMatchConverters[converterPair{SrcType: srcType, DstType: dstType}] = converter.Fn
 		}
@@ -331,9 +331,9 @@ func (c *Copier) copyRecursive(srcVal, dstVal reflect.Value) *CopierError {
 
 	if c.convertersEnabled {
 		// try to use custom converters
-		if hasCopied, err := c.copyWithConverters(srcVal, dstVal); err != nil {
+		if stop, err := c.copyWithConverters(srcVal, dstVal); err != nil {
 			return wrapError(err, "copy via custom converter failed")
-		} else if hasCopied {
+		} else if stop {
 			return nil
 		}
 	}
@@ -707,7 +707,7 @@ func parseTag(tag string) (info structTagInfo) {
 }
 
 // copyWithConverters uses the provided custom converters to copy the value.
-func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (copied bool, err error) {
+func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (stop bool, err error) {
 	srcType := srcVal.Type()
 	dstType := dstVal.Type()
 
@@ -715,11 +715,11 @@ func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (copied bool, 
 	if len(c.srcDstMatchConverters) > 0 {
 		pair := converterPair{SrcType: srcType, DstType: dstType}
 		if conv, ok := c.srcDstMatchConverters[pair]; ok {
-			err := c.applyConverter(conv, srcVal, dstVal)
+			stop, err := c.applyConverter(conv, srcVal, dstVal)
 			if err != nil {
 				return false, err
 			}
-			return true, nil
+			return stop, nil
 		}
 	}
 
@@ -727,11 +727,11 @@ func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (copied bool, 
 	if len(c.srcMatchConverters) > 0 {
 		pair := converterPair{SrcType: srcType}
 		if conv, ok := c.srcMatchConverters[pair]; ok {
-			err := c.applyConverter(conv, srcVal, dstVal)
+			stop, err := c.applyConverter(conv, srcVal, dstVal)
 			if err != nil {
 				return false, err
 			}
-			return true, nil
+			return stop, nil
 		}
 	}
 
@@ -739,11 +739,11 @@ func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (copied bool, 
 	if len(c.dstMatchConverters) > 0 {
 		pair := converterPair{DstType: dstType}
 		if conv, ok := c.dstMatchConverters[pair]; ok {
-			err := c.applyConverter(conv, srcVal, dstVal)
+			stop, err := c.applyConverter(conv, srcVal, dstVal)
 			if err != nil {
 				return false, err
 			}
-			return true, nil
+			return stop, nil
 		}
 	}
 
@@ -751,25 +751,20 @@ func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (copied bool, 
 }
 
 // applyConverter applies the converter to convert/copy the value.
-func (c *Copier) applyConverter(conv converterFunc, srcVal, dstVal reflect.Value) error {
-	result, err := conv(srcVal.Interface())
+func (c *Copier) applyConverter(conv converterFunc, srcVal, dstVal reflect.Value) (bool, error) {
+	result, stop, err := conv(srcVal.Interface())
 	if err != nil {
-		return err
+		return false, err
 	}
-
-	// set result to dstVal
 	if result != nil {
-		if srcVal.Type() == dstVal.Type() {
-			dstVal.Set(reflect.ValueOf(result))
-		} else {
-			return ErrConversion
-		}
-	} else {
-		// turn nil value into the types zero value
-		dstVal.Set(reflect.Zero(dstVal.Type()))
+		defer func() {
+			if r := recover(); r != nil {
+				err = newError("failed to set converted value: %s", r)
+			}
+		}()
+		dstVal.Set(reflect.ValueOf(result))
 	}
-
-	return nil
+	return stop, nil
 }
 
 // copyUnexported copies the unexported fields of a struct value.
