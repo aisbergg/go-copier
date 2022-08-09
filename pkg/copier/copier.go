@@ -89,12 +89,12 @@ type Options struct {
 type TypeConverter struct {
 	SrcType interface{}
 	DstType interface{}
-	Fn      func(src interface{}) (dst interface{}, stop bool, err error)
+	Fn      func(src interface{}, copier *Copier) (dst interface{}, stop bool, err error)
 }
 
 // converterFunc is a function that converts a value from a source type to a
 // destination type.
-type converterFunc func(src interface{}) (dst interface{}, stop bool, err error)
+type converterFunc func(src interface{}, copier *Copier) (dst interface{}, stop bool, err error)
 
 // converterPair is a helper type for fast converter lookup.
 type converterPair struct {
@@ -752,7 +752,7 @@ func (c *Copier) copyWithConverters(srcVal, dstVal reflect.Value) (stop bool, er
 
 // applyConverter applies the converter to convert/copy the value.
 func (c *Copier) applyConverter(conv converterFunc, srcVal, dstVal reflect.Value) (bool, error) {
-	result, stop, err := conv(srcVal.Interface())
+	result, stop, err := conv(srcVal.Interface(), c)
 	if err != nil {
 		return false, err
 	}
