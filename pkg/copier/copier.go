@@ -700,7 +700,9 @@ func parseTag(tag string) (info structTagInfo) {
 		case "nopanic":
 			info.Flags = info.Flags | tagNoPanic
 		default:
-			info.Name = strings.TrimSpace(t)
+			if info.Name == "" {
+				info.Name = strings.TrimSpace(t)
+			}
 		}
 	}
 	return
