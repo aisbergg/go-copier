@@ -801,6 +801,17 @@ func (c *Copier) copyPrimitive(srcVal, dstVal reflect.Value) *CopierError {
 	}
 
 	// auto conversion
+	if dstVal.Type() == timeType {
+		if srcVal.Kind() == reflect.String {
+			t, err := time.Parse(time.RFC3339, srcVal.String())
+			if err != nil {
+				return newError("failed to parse time: %s", err)
+			}
+			dstVal.Set(reflect.ValueOf(t))
+			return nil
+		}
+		return newError("unsupported conversion (%s ➜ %s)", srcVal.Type(), dstVal.Type())
+	}
 	switch dstVal.Kind() {
 	case reflect.String:
 		switch srcVal.Kind() {
